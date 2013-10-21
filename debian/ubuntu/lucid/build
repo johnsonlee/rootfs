@@ -1,0 +1,13 @@
+#!/bin/sh
+
+THIS=$0
+CWD=$(dirname $THIS)
+
+$CWD/../../mkrfs.deb \
+    --variant=buildd \
+    --arch=i386 \
+    --suite=lucid \
+    --components=main,universe \
+    --include=git-core,htop,subversion,tree,vim \
+    --format=ext4
+

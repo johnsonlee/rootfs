@@ -1,0 +1,67 @@
+#!/bin/sh
+#
+# This scripts performs making a raw disk image with fixed size
+#
+
+THIS=$0
+CWD=$(dirname $THIS)
+
+. $CWD/env
+
+
+FILE=
+SIZE=
+TYPE=ext4
+
+usage() {
+    echo "Usage: $THIS OPTIONS"
+    echo ""
+    echo "OPTIONS:"
+    echo "  --output=FILE              The output file path"
+    echo "  --type=FORMAT              The type of image file"
+    echo "                               * ext2"
+    echo "                               * ext3"
+    echo "                               * ext4 (default)"
+    echo "  --size=SIZE                The size of image file (in KB)"
+    exit 1
+}
+
+#
+# Read options
+#
+while [ $# -ne 0 ]; do
+    case $1 in
+        --output=*)
+            FILE="${1#*--output=}"
+            ;;
+        --size=*)
+            SIZE="${1#*--size=}"
+            ;;
+        --type=*)
+            TYPE="${1#*--type=}"
+            ;;
+        *)
+            echo "Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+#
+# Check required options
+#
+[ -z "$FILE" ] && [ -z "$SIZE" ] && usage
+
+NAME="`basename $FILE`"
+LABEL=`echo $NAME | sed -r 's/\.[^\.]+$//'`
+
+#
+# Create an empty disk and then convert to ext format
+#
+echo -e "\033[32mCreating image $NAME with size $SIZE bytes\033[m"
+dd if=/dev/zero of=$FILE bs=1k count=$SIZE \
+&& mke2fs -m 0 -t $TYPE -L $LABEL $FILE << EOF
+y
+EOF
+

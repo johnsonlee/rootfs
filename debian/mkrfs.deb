@@ -1,0 +1,216 @@
+#!/bin/sh
+#
+# This scripts performs making a debian root file system
+# 
+# 
+# Additional packages for VM:
+#   * curl
+#   * htop
+#   * subversion
+#   * tree
+#   * vim
+#   * wireless-crda
+#
+
+THIS=$0
+CWD=$(dirname $THIS)
+
+. $CWD/env
+
+chkpkg realpath
+chkpkg debootstrap
+
+
+ARCH=$(arch)
+SUITE=
+FORMAT=
+MIRROR=
+KERNEL=
+TARBALL=
+VARIANT=
+TARBALL=
+INCLUDES=
+EXCLUDES=
+COMPONENTS=
+
+usage() { echo "Usage: $THIS OPTIONS"
+    echo ""
+    echo "OPTIONS:"
+    echo "  --variant=VARIANT           Available debian variant"
+    echo "  --arch=ARCH                 The target arch, default is the same as host arch"
+    echo "  --suite=SUITE               Available suite of the specified debian variant"
+    echo "  --components=COMPONENTS     Comma seperated commponent list"
+    echo "  --include=PACKAGES          Comma seperated package list which to install"
+    echo "  --exclude=PACKAGES          Comma seperated package list which to uninstall"
+    echo "  --mirror=MIRROR             The mirror url to download packages"
+    echo "  --kerel=KERNEL              Kernel version to install"
+    echo "  --format=FORMAT             The format of root fs partition"
+    exit 1
+}
+
+mktarball() {
+    debootstrap \
+        --verbose \
+        --arch=$ARCH \
+        --variant=$VARIANT \
+        --make-tarball=$TARBALL \
+        $COMPONENTS $MIRROR $SUITE "$SUITE"-"$ARCH"
+}
+
+untarball() {
+    echo "Unpacking $PWD/$TARBALL ..."
+
+    debootstrap \
+        --verbose \
+        --arch=$ARCH \
+        --variant=$VARIANT \
+        --unpack-tarball=$PWD/$TARBALL \
+        $COMPONENTS $MIRROR $SUITE "$SUITE"-"$ARCH"
+}
+
+#
+# Read options
+#
+while [ $# -ne 0 ]; do
+    case $1 in
+        --variant=*)
+            VARIANT="${1#*--variant=}"
+            ;;
+        --arch=*)
+            ARCH="${1#*--arch=}"
+            ;;
+        --suite=*)
+            SUITE="${1#*--suite=}"
+            ;;
+        --format=*)
+            FORMAT="${1#*--format=}"
+            ;;
+        --mirror=*)
+            MIRROR="--mirror=${1#*--mirror=}"
+            ;;
+        --kernel=*)
+            KERNEL="${1#*--kernel=}"
+            ;;
+        --components=*)
+            COMPONENTS="--components=${1#*--components=}"
+            ;;
+        --include=*)
+            INCLUDES="`echo ${1#*--include=} | sed 's/,/ /g'`"
+            ;;
+        --exclude=*)
+            EXCLUDES="`echo ${1#*--include=} | sed 's/,/ /g'`"
+            ;;
+        *)
+            echo "Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+#
+# Check required options
+#
+[ -z "$VARIANT" ] && [ -z "$SUITE" ] && usage
+
+ROOTDIR="$SUITE"-"$ARCH"
+ROOTIMG="$ROOTDIR.img"
+TARBALL="$VARIANT"-"$ROOTDIR".tgz
+CHROOT="chroot $ROOTDIR"
+
+#
+# Create bootable disk image
+#
+$CWD/mkbootimg --file=$ROOTIMG --type=raw --size=4G || exit 1
+
+# Release /dev/loop1
+[ ! -z "$(losetup -a | grep "/dev/loop1" | awk '{print $1}')" ] && {
+    losetup -d /dev/loop1
+}
+
+# Release /dev/loop0
+[ ! -z "$(losetup -a | grep "/dev/loop0" | awk '{print $1}')" ] && {
+    losetup -d /dev/loop0
+}
+
+# Create root dir
+[ ! -d "$ROOTDIR" ] && { mkdir -p $ROOTDIR; }
+
+#
+# Point /dev/loop0 to the entire image file
+# Point /dev/loop1 to the partition
+#
+# The partition starts from where the MBR is.
+# Actually it starts in the cylinder 0 but in the second head.
+# According to CHS report by sfdisk, there are 63 sector per track,
+# so we just need to skip so many bytes: 63 * 512 = 32256
+#
+# BYTES_PER_SECTOR=512
+# SECTORS_PER_TRACK=63
+# HEADS_PER_TRACK=255
+# BYTES_PER_CYLINDER=$(($BYTES_PER_SECTOR*$SECTORS_PER_TRACK*$HEADS_PER_TRACK))
+# CYLINDERS=$(($SIZE/$BYTES_PER_CYLINER))
+#
+losetup /dev/loop0 $ROOTIMG \
+    && losetup -o 32256 /dev/loop1 /dev/loop0 \
+    && mkfs -t $FORMAT /dev/loop1 \
+    && mount /dev/loop1 $ROOTDIR || exit 1
+
+#
+# Use the local tarball if it exists
+#
+if [ ! -f "$PWD/$TARBALL" ]; then
+    mktarball && untarball || exit
+else
+    untarball || exit
+fi
+
+mount -o bind /dev/    $ROOTDIR/dev
+mount -o bind /dev/pts $ROOTDIR/dev/pts
+mount -o bind /proc    $ROOTDIR/proc
+
+cp /etc/kernel-img.conf $ROOTDIR/etc/kernel-img.conf
+echo "en_US.UTF-8 UTF-8" > $ROOTDIR/etc/locale.gen
+echo "deb http://security.ubuntu.com/ubuntu lucid-security main" >> $ROOTDIR/etc/apt/sources.list
+
+$CHROOT locale-gen
+$CHROOT apt-get update
+$CHROOT apt-get -y --force-yes -f install
+$CHROOT apt-get -y --force-yes upgrade
+$CHROOT apt-get -y --force-yes install grub linux-image-$(uname -r)
+
+#
+# Install packages
+#
+[ ! -z "$INCLUDES" ] && {
+    $CHROOT apt-get -y --force-yes install $INCLUDES
+}
+
+#
+# Uninstall packages
+#
+[ ! -z  "$EXCLUDES" ] && {
+    $CHROOT apt-get -y --force-yes remove $EXCLUDES
+}
+
+#
+# Install grub modules
+#
+$CHROOT grub-mkconfig -o /boot/grub/grub.cfg
+
+[ -f $ROOTDIR/boot/grub/grub.cfg ] && { 
+    sed -i -e 's/(\/dev\/loop1)/(hd0,1)/g' \
+           -e 's/(\/dev\/loop0)/(hd0,1)/g' \
+           -e 's/(loop0)/(hd0,1)/g' \
+           $ROOTDIR/boot/grub/grub.cfg
+}
+
+grub-install --no-floppy --root-directory=$ROOTDIR --modules="part_msdos ext2" /dev/loop0 || exit 1
+
+umount $ROOTDIR/dev/pts
+umount $ROOTDIR/dev
+umount $ROOTDIR/proc
+umount $ROOTDIR
+losetup -d /dev/loop1
+losetup -d /dev/loop0
+

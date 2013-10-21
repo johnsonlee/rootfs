@@ -1,0 +1,68 @@
+#!/bin/sh
+#
+# This scripts performs packing files/dirs as a raw disk image
+#
+
+THIS=$0
+CWD=$(dirname $THIS)
+
+. $CWD/env
+
+
+SIZE=
+IFILE=
+OFILE=
+
+usage() {
+    echo "Usage: $0 OPTIONS"
+    echo ""
+    echo "OPTIONS"
+    echo "  --input=FILE               The file/dir path to pack"
+    echo "  --output=FILE              The output file path"
+    echo "  --size=SIZE                The size of image file (in KB)"
+    exit 1
+
+}
+
+#
+# Read options
+#
+while [ $# -ne 0 ]; do
+    case $1 in
+        --input=*)
+            IFILE="${1#*--input=}"
+            ;;
+        --output=*)
+            OFILE="${1#*--output=}"
+            ;;
+        --size=*)
+            SIZE="${1#*--size=}"
+            ;;
+        *)
+            echo "Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+#
+# Check required options
+#
+[ -z "$IFILE" ] && [ -z "$OFILE" ] && [ -z "$SIZE" ] && usage
+
+#
+# Create image file
+#
+$CWD/mkimg.ext --output=$OFILE --size=$SIZE || exit 1
+
+#
+# Write file into target image
+#
+MNTDIR=$(mktemp -d)
+NBYTES=$(du -sb $IFILE | awk '{sum+=$1} END {print sum}')
+mount -o loop $OFILE $MNTDIR \
+    && cp -rf $IFILE $MNTDIR \
+    && umount $MNTDIR \
+    && echo -e "\033[32mWrite $NBYTES bytes to $OFILE success.\033[m"
+
