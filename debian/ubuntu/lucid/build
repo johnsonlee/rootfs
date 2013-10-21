@@ -3,11 +3,12 @@
 THIS=$0
 CWD=$(dirname $THIS)
 
-$CWD/../../mkrfs.deb \
-    --variant=buildd \
-    --arch=i386 \
-    --suite=lucid \
-    --components=main,universe \
-    --include=git-core,htop,subversion,tree,vim \
-    --format=ext4
+$CWD/../../mkrootfs            \
+    --arch=i386                \
+    --variant=buildd           \
+    --suite=lucid              \
+    --kernel=2.6.32-38-generic \
+    --format=ext4              \
+    --size=4G                  \
+    $@
 
