@@ -61,5 +61,6 @@ qemu-img create $TYPE $FILE $SIZE \
     && echo -e "\x55\xaa" | dd bs=1 count=2 seek=510 of=$FILE conv=notrunc \
     && sfdisk -D $FILE << EOF
 ,,L,*
+;
 EOF
 
