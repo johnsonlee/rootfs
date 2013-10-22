@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # This scripts performs packing files/dirs as a raw disk image
 #

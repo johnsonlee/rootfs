@@ -1,15 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 #
 # This scripts performs making a debian root file system
-# 
-# 
-# Additional packages for VM:
-#   * curl
-#   * htop
-#   * subversion
-#   * tree
-#   * vim
-#   * wireless-crda
 #
 
 THIS=$0
@@ -220,7 +211,7 @@ kvm-img create -f raw $ROOTIMG $SIZE || error "Create image file failed"
 for i in /dev/nbd*; do
     info "Connecting $i ..."
 
-    if kvm-nbd -c $i $ROOTIMG; then
+    if kvm-nbd -c $i $PWD/$ROOTIMG; then
         NBDDEV=$i
         break
     else
