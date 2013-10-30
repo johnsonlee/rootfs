@@ -43,7 +43,7 @@ usage() { echo "Usage: $THIS OPTIONS"
     echo "  --mirror=MIRROR             The mirror url to download packages"
     echo "  --kerel=KERNEL              Kernel version to install (required)"
     echo "  --host=HOSTNAME             The host name (required)"
-    echo "  --user=USER                 The user name to create (required)"
+    echo "  --username=USERNAME         The user name to create (required)"
     echo "  --password=PASSWORD         The password of the specified user name (required)"
     echo "  --format=FORMAT             The format of root fs partition (optional, default is ext4)"
     echo "  --size=SIZE                 The max size of disk image (optional, default is 4G)"
@@ -145,8 +145,8 @@ while [ $# -ne 0 ]; do
         --host=*)
             HOSTNAME="${1#*--host=}"
             ;;
-        --user=*)
-            USERNAME="${1#*--user=}"
+        --username=*)
+            USERNAME="${1#*--username=}"
             ;;
         --password=*)
             PASSWORD="${1#*--password=}"
@@ -253,9 +253,9 @@ mount ${NBDDEV}p2 $ROOTDIR || error "Mount / to $ROOTDIR failed"
 # Use the local tarball if it exists
 #
 if [ ! -f "$PWD/$TARBALL" ]; then
-    mktarball && untarball || error "Download package failed"
+    mktarball && untarball
 else
-    untarball || error "Download package failed"
+    untarball
 fi
 
 #
@@ -357,9 +357,8 @@ sed -e "s|${NBDDEV}p1|/dev/sda1|g" \
 # Configure user account
 #
 info "Configuring account for user $USERNAME"
-$CHROOT adduser \
-    --home /home/$USERNAME \
-    --shell /bin/bash $USERNAME
+$CHROOT useradd --create-home -s /bin/bash $USERNAME
+echo "$USERNAME:$PASSWORD" | $CHROOT chpasswd
 
 cleanup
 

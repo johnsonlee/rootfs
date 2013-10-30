@@ -10,5 +10,6 @@ $CWD/../../mkrootfs            \
     --kernel=2.6.32-38-generic \
     --format=ext4              \
     --size=4G                  \
-    $@
+    --username=ubuntu          \
+    --password=ubuntu
 
