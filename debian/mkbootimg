@@ -1,0 +1,66 @@
+#!/bin/bash
+
+THIS=$0
+CWD=$(dirname $THIS)
+
+. $CWD/env
+
+chkpkg qemu-img
+
+
+FILE=
+SIZE=
+TYPE=
+FORMAT=ext2
+
+usage() {
+    echo "Usage: $THIS OPTIONS"
+    echo ""
+    echo "OPTIONS:"
+    echo "  --file=FILE                The image file"
+    echo "  --format=FORMAT            The format of the bootable partition"
+    echo "  --size=SIZE                The size of image"
+    echo "  --type=TYPE                The image format, eg: raw, qcow, qcow2..."
+    exit 1
+}
+
+#
+# Read options
+#
+while [ $# -ne 0 ]; do
+    case $1 in
+        --file=*)
+            FILE="${1#*--file=}"
+            ;;
+        --size=*)
+            SIZE="${1#*--size=}"
+            ;;
+        --type=*)
+            TYPE="-f ${1#*--type=}"
+            ;;
+        --format=*)
+            FORMAT="${1#*--format=}"
+            ;;
+        *)
+            echo "Unknown option $1"
+            ;;
+    esac
+    shift
+done
+
+#
+# Check required options
+#
+[ -z "$FILE" ] && [ -z "$SIZE" ] && usage
+
+#
+# Write 0xaa55 to then end of the first 512 bytes, so
+# that, BIOS is able to be recognized as a bootable image
+#
+qemu-img create $TYPE $FILE $SIZE \
+    && echo -e "\x55\xaa" | dd bs=1 count=2 seek=510 of=$FILE conv=notrunc \
+    && sfdisk -D $FILE << EOF
+,,L,*
+;
+EOF
+

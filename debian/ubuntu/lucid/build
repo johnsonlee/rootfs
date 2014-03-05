@@ -1,0 +1,15 @@
+#!/bin/sh
+
+THIS=$0
+CWD=$(dirname $THIS)
+
+$CWD/../../mkrootfs            \
+    --arch=i386                \
+    --variant=buildd           \
+    --suite=lucid              \
+    --kernel=2.6.32-38-generic \
+    --format=ext4              \
+    --size=4G                  \
+    --username=ubuntu          \
+    --password=ubuntu
+

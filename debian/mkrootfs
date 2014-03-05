@@ -1,0 +1,364 @@
+#!/bin/bash
+#
+# This scripts performs making a debian root file system
+#
+
+THIS=$0
+CWD=$(dirname $THIS)
+
+. $CWD/env
+
+chkpkg debootstrap
+
+
+ARCH="$(arch)"
+VARIANT=
+SUITE=
+COMPONENTS="main,universe"
+INCLUDES=
+EXCLUDES=
+MIRROR=
+KERNEL=
+HOSTNAME=
+USERNAME=
+PASSWORD=
+FORMAT="ext4"
+SIZE="4G"
+TARBALL=
+
+BUILTIN_PKGS=git-core,htop,openssh-server,subversion,tree,vim
+
+#
+# Print usage
+#
+usage() { echo "Usage: $THIS OPTIONS"
+    echo ""
+    echo "OPTIONS:"
+    echo "  --arch=ARCH                 The target arch, default is the same as host arch (required)"
+    echo "  --variant=VARIANT           Available debian variant (required)"
+    echo "  --suite=SUITE               Available suite of the specified debian variant (required)"
+    echo "  --components=COMPONENTS     Comma seperated commponent list (optional, default is main,universe)"
+    echo "  --include=PACKAGES          Comma seperated package list which to install"
+    echo "  --exclude=PACKAGES          Comma seperated package list which to uninstall"
+    echo "  --mirror=MIRROR             The mirror url to download packages"
+    echo "  --kerel=KERNEL              Kernel version to install (required)"
+    echo "  --host=HOSTNAME             The host name (required)"
+    echo "  --username=USERNAME         The user name to create (required)"
+    echo "  --password=PASSWORD         The password of the specified user name (required)"
+    echo "  --format=FORMAT             The format of root fs partition (optional, default is ext4)"
+    echo "  --size=SIZE                 The max size of disk image (optional, default is 4G)"
+    exit 1
+}
+
+#
+# Clean up before exit
+#
+cleanup() {
+    if [ -e $ROOTDIR ]; then
+        umount $ROOTDIR/dev
+        $CHROOT umount /proc
+        $CHROOT umount /sys
+        $CHROOT umount /dev
+        $CHROOT umount /boot
+        umount $ROOTDIR
+    fi
+
+    kvm-nbd -d $NBDDEV
+}
+
+info() {
+    echo -e "\033[32m$1\033[m"
+}
+
+warn() {
+    echo -e "\033[33m$1\033[m"
+}
+
+#
+# Quit with specified error message
+#
+error() {
+    cleanup
+    echo -e "\033[31m$1\033[m"
+    exit 1
+}
+
+#
+# Cache the deb packages as tgz ball
+#
+mktarball() {
+    debootstrap \
+        --verbose \
+        --arch=$ARCH \
+        --variant=$VARIANT \
+        --components=$COMPONENTS \
+        --include=$BUILTIN_PKGS \
+        --make-tarball=$TARBALL \
+        $MIRROR $SUITE ${SUITE}-${ARCH}
+}
+
+#
+# Create the rootfs from cached tgz ball
+#
+untarball() {
+    info "Unpacking $PWD/$TARBALL ..."
+
+    debootstrap \
+        --verbose \
+        --arch=$ARCH \
+        --variant=$VARIANT \
+        --components=$COMPONENTS \
+        --include=$BUILTIN_PKGS \
+        --unpack-tarball=$PWD/$TARBALL \
+        $MIRROR $SUITE ${SUITE}-${ARCH}
+}
+
+#
+# Read options
+#
+while [ $# -ne 0 ]; do
+    case $1 in
+        --arch=*)
+            ARCH="${1#*--arch=}"
+            ;;
+        --variant=*)
+            VARIANT="${1#*--variant=}"
+            ;;
+        --suite=*)
+            SUITE="${1#*--suite=}"
+            ;;
+        --components=*)
+            COMPONENTS="${1#*--components=}"
+            ;;
+        --include=*)
+            INCLUDES="`echo ${1#*--include=} | sed 's/,/ /g'`"
+            ;;
+        --exclude=*)
+            EXCLUDES="`echo ${1#*--include=} | sed 's/,/ /g'`"
+            ;;
+        --mirror=*)
+            MIRROR="--mirror=${1#*--mirror=}"
+            ;;
+        --kernel=*)
+            KERNEL="${1#*--kernel=}"
+            ;;
+        --host=*)
+            HOSTNAME="${1#*--host=}"
+            ;;
+        --username=*)
+            USERNAME="${1#*--username=}"
+            ;;
+        --password=*)
+            PASSWORD="${1#*--password=}"
+            ;;
+        --size=*)
+            SIZE="${1#*--size=}"
+            ;;
+        --format=*)
+            FORMAT="${1#*--format=}"
+            ;;
+        *)
+            echo "Unknown option $1"
+            usage
+            ;;
+    esac
+    shift
+done
+
+#
+# Check required options
+#
+[ -z "$VARIANT" ] \
+    || [ -z "$SUITE" ] \
+    || [ -z "$KERNEL" ] \
+    || [ -z "$USERNAME" ] \
+    || [ -z "$PASSWORD" ] && {
+    warn "Too few arguments"
+    usage
+}
+
+# Set the host name as user name if --host no specified
+[ -z "$HOSTNAME" ] && { HOSTNAME=$USERNAME; }
+
+NBDDEV=
+ROOTDIR=${SUITE}-${ARCH}
+CHROOT="chroot $ROOTDIR"
+ROOTIMG=${ROOTDIR}.img
+TARBALL=${VARIANT}-${ROOTDIR}.tgz
+
+#
+# Create root file system image
+#
+[ -f $ROOTIMG ] && { rm -f $ROOTIMG; }
+kvm-img create -f raw $ROOTIMG $SIZE || error "Create image file failed"
+
+#
+# Load nbd module into kernel if needed, so that,
+# we're able to mount the disk partition via nbd device
+#
+# Another way to mount disk partition is via loop device:
+#
+#   losetup /dev/loop0 rootfs.img
+#   losetup -o $(63*512) /dev/loop1 rootfs.img
+#   mount /dev/loop1 rootfs
+#
+[ $(lsmod | grep nbd | wc -l) -ne 1 ] && {
+    info "Loading nbd kernel model ..."
+    modprobe nbd max_part=16 || error "Load nbd module into kernel failed"
+}
+
+# Search an available nbd device
+for i in /dev/nbd*; do
+    info "Connecting $i ..."
+
+    if kvm-nbd -c $i $PWD/$ROOTIMG; then
+        NBDDEV=$i
+        break
+    else
+        warn "Connect $i failed"
+    fi
+done
+
+[ -z "$NBDDEV" ] && error "No available nbd device"
+
+info "Connected $ROOTIMG to $NBDDEV"
+
+sleep 1
+
+#
+# Part disk as 2 partitions & format them as ext4.
+# Set the 1st partition as bootable partition
+#
+sfdisk $NBDDEV -D -uM << EOF || error "Create partitions failed"
+,512,L,*
+;
+EOF
+
+# format the 1st partition
+info "Formatting ${NBDDEV}p1 ..."
+mkfs -t $FORMAT -q ${NBDDEV}p1 || error "Format partion /boot failed"
+
+# format the 2nd partition
+echo -e "\033[32mFormatting ${NBDDEV}p2 ...\033[m"
+mkfs -t $FORMAT -q ${NBDDEV}p2 || error "Format partition / failed"
+
+#
+# Mount root partition
+#
+mkdir -p $ROOTDIR
+info "Mounting ${NBDDEV}p2 -> $ROOTDIR ..."
+mount ${NBDDEV}p2 $ROOTDIR || error "Mount / to $ROOTDIR failed"
+
+#
+# Use the local tarball if it exists
+#
+if [ ! -f "$PWD/$TARBALL" ]; then
+    mktarball && untarball
+else
+    untarball
+fi
+
+#
+# Configure system environment
+#
+info "Configuring system ..."
+
+# mount partitions
+mount --bind             /dev $ROOTDIR/dev  || error "Mount /dev to $ROOTDIR/dev failed"
+$CHROOT mount -t proc    none         /proc || error "Mount /proc failed"
+$CHROOT mount -t sysfs   none         /sys  || error "Mount /sys failed"
+$CHROOT mount -t $FORMAT ${NBDDEV}p1  /boot || error "Mount ${NBDDEV}p1 to /boot failed"
+
+# Configure /etc/fstab
+info "Configuring /etc/fstab ..."
+cat << EOF > $ROOTDIR/etc/fstab
+/dev/sda1 /boot          $FORMAT sync              0 2
+/dev/sda2 /              $FORMAT errors=remount-ro 0 1
+EOF
+
+# Configure /etc/hostname
+info "Configuring /etc/hostname ..."
+cat << EOF > $ROOTDIR/etc/hostname
+$HOSTNAME 
+EOF
+
+# Configure /etc/hosts
+info "Configuring /etc/hosts ..."
+cat << EOF > $ROOTDIR/etc/hosts
+127.0.0.1       localhost
+127.0.1.1       $HOSTNAME
+EOF
+
+# Configure /etc/network/interfaces
+info "Configuring /etc/network/interfaces ..."
+cat << EOF > $ROOTDIR/etc/network/interfaces
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+EOF
+
+# Configure /etc/apt/sources.list
+info "Configuring /etc/apt.sources.list ..."
+cat << EOF >> $ROOTDIR/etc/apt/sources.list
+deb http://security.ubuntu.com/ubuntu lucid-security main
+EOF
+
+# Generate locales
+$CHROOT locale-gen en_US.UTF-8
+
+# Install packages
+$CHROOT apt-get update
+#$CHROOT apt-get -y --force-yes -f install
+#$CHROOT apt-get -y --force-yes upgrade
+DEBIAN_FRONTEND=noninteractive \
+$CHROOT apt-get -q -y --force-yes \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    install linux-image-$KERNEL grub-pc
+
+#
+# Install packages
+#
+[ ! -z "$INCLUDES" ] && {
+    $CHROOT apt-get -y --force-yes install $INCLUDES
+}
+
+#
+# Uninstall packages
+#
+[ ! -z  "$EXCLUDES" ] && {
+    $CHROOT apt-get -y --force-yes remove $EXCLUDES
+}
+
+#
+# Install grub
+#
+info "Installing grub ..."
+$CHROOT grub-install $NBDDEV --modules="biosdisk part_msdos ext2" || error "Install grub failed"
+$CHROOT update-grub || error "Update grub failed"
+
+# Configure /boot/grub/grub.cfg
+info "Configuring /boot/grub/grub.cfg ..."
+
+# Fix grub once again
+grub-install $NBDDEV --root-directory=$ROOTDIR --modules="biosdisk part_msdos ext2" || error "Reinstall grub failed"
+
+[ ! -w $ROOTDIR/boot/grub/grub.cfg ] && {
+    chmod +w $ROOTDIR/boot/grub/grub.cfg
+}
+
+sed -e "s|${NBDDEV}p1|/dev/sda1|g" \
+    -e "s|${NBDDEV}p2|/dev/sda2|g" \
+    -i $ROOTDIR/boot/grub/grub.cfg
+
+#
+# Configure user account
+#
+info "Configuring account for user $USERNAME"
+$CHROOT useradd --create-home -s /bin/bash $USERNAME
+echo "$USERNAME:$PASSWORD" | $CHROOT chpasswd
+
+cleanup
+

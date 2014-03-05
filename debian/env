@@ -1,0 +1,28 @@
+#!/bin/bash
+#
+# This scripts performs shell env setup
+#
+#
+# Tools for kernel building
+#   * kernel-wedge
+#   * makedumpfile
+#
+
+
+[ $(whoami) != "root" ] && {
+    echo "Must run as root"
+    exit
+}
+
+#
+# Check package and install it if it not exists
+#
+chkpkg() {
+    local pkg=$1
+
+    echo "Checking package $pkg..."
+
+    [ ! -x "$(which $pkg)" ] && {
+        apt-get install $pkg
+    }
+}
