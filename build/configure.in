@@ -1,0 +1,58 @@
+AC_PREREQ(2.59)
+AC_INIT([xbuild], [1.0.0], [https://github.com/johnsonlee/xbuild])
+AM_INIT_AUTOMAKE
+
+AC_CANONICAL_HOST
+
+AC_ARG_WITH([toolchain],
+  [AS_HELP_STRING([--with-toolchain], [specify path to toolchain])],
+  [toolchain=$withval],
+  [toolchain=no])
+
+AC_ARG_WITH([tarballs],
+  [AS_HELP_STRING([--with-tarballs], [path where tarballs will be saved])],
+  [tarballs=$withval],
+  [tarballs=~/Downloads])
+
+AC_PROG_CC
+AC_PROG_CXX
+
+AC_CHECK_PROG(HAVE_UNZIP,unzip,yes,no,)
+if test "$HAVE_UNZIP" = "no"; then
+  AC_MSG_ERROR("Missing program: unzip")
+fi
+
+AC_CHECK_PROG(HAVE_ZIP,zip,yes,no,)
+if test "$HAVE_ZIP" = "no"; then
+  AC_MSG_ERROR("Missing program: zip")
+fi
+
+AC_PATH_PROG(TAR,tar,no,)
+if test "$TAR" = "no"; then
+  AC_MSG_ERROR("Missing program: tar")
+fi
+
+AC_PATH_PROG(WGET,wget,no,)
+if test "$WGET" = "no"; then
+  AC_MSG_ERROR("Missing program: wget")
+fi
+
+staging=$PWD/out
+
+AC_SUBST(build)
+AC_SUBST(host)
+AC_SUBST(prefix)
+AC_SUBST(staging)
+AC_SUBST(tarballs)
+AC_SUBST(toolchain)
+
+echo "------------------------------------------------------------"
+echo "  build platform: $build"
+echo "  host platform:  $host"
+echo "  prefix:         $prefix"
+echo "  toolchain:      $toolchain"
+echo "  tarballs:       $tarballs"
+echo "------------------------------------------------------------"
+
+AC_CONFIG_FILES([Makefile Include.mk])
+AC_OUTPUT

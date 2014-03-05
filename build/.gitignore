@@ -1,0 +1,14 @@
+*.m4
+*.cache
+
+.*.swp
+.install-*
+
+config.*
+configure
+install-sh
+missing
+out
+Include.mk
+Makefile
+Makefile.in

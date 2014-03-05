@@ -1,0 +1,84 @@
+HOST=@host@
+BUILD=@build@
+STAGING=@staging@
+TARBALLS_DIR=@tarballs@
+
+# staging path
+HOST_STAGING=$(STAGING)/$(HOST)
+BUILD_STAGING=$(STAGING)/$(BUILD)
+
+PLATFORM=$(HOST)
+PREFIX=$(HOST_STAGING)/usr
+
+ifneq ($(ARCH),)
+  PLATFORM_FLAGS+=-march $(ARCH)
+endif
+
+# wget options
+WGET=@WGET@
+WGET_FLAGS=-P $(TARBALLS_DIR)
+
+# tar options
+TAR=@TAR@
+TAR_FLAGS=--strip-components=1 -C $(PLATFORM) -xf
+
+# package absolute file path
+PACKAGE=$(TARBALLS_DIR)/$(PKGTAR)
+
+export AR=$(CROSS_COMPILE)ar
+export AS=$(CROSS_COMPILE)as
+export CC=$(CROSS_COMPILE)gcc
+export CXX=$(CROSS_COMPILE)g++
+export LD=$(CROSS_COMPILE)ld
+export NM=$(CROSS_COMPILE)nm
+export STRIP=$(CROSS_COMPILE)strip
+export RANLIB=$(CROSS_COMPILE)ranlib
+export OBJDUMP=$(CROSS_COMPILE)objdump
+export READELF=$(CROSS_COMPILE)readelf
+
+export CFLAGS=$(PLATFORM_FLAGS) -I$(PREFIX)/include
+export LDFLAGS=$(PLATFORM_FLAGS) -L$(PREFIX)/lib
+export CPPFLAGS=$(PLATFORM_FLAGS) -I$(PREFIX)/include
+export CXXFLAGS=$(PLATFORM_FLAGS) -I$(PREFIX)/include -frtti
+export LD_LIBRARY_PATH:=$(PREFIX)/lib:$(LD_LIBRARY_PATH)
+export PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig:$(PREFIX)/share/pkgconfig
+
+export AUTOMAKE=$(PREFIX)/bin/automake
+export AUTOCONF=$(PREFIX)/bin/autoconf
+export ACLOCAL=$(PREFIX)/bin/aclocal
+export ACLOCAL_PATH=$(PREFIX)/share/aclocal
+export LIBTOOLIZE=$(PREFIX)/bin/libtoolize
+export AUTORECONF=$(PREFIX)/bin/autoreconf
+
+export PKG_CONFIG=$(PREFIX)/bin/pkg-config
+export PATH:=$(PREFIX)/bin:$(PATH)
+
+
+all: .install-$(PLATFORM)
+
+.install-$(PLATFORM): $(PKGOUT)
+	@$(MAKE) -C $(PLATFORM) install
+	@touch $@
+
+$(PKGOUT): $(PLATFORM)
+	@$(MAKE) -C $<
+
+$(PLATFORM): source $(PACKAGE)
+	@cd $@; ./configure --prefix=$(PREFIX)
+
+source: $(PACKAGE)
+	@rm -rf $(PLATFORM)
+	@mkdir -p $(PLATFORM)
+	@$(TAR) $(TAR_FLAGS) $<
+
+$(PACKAGE):
+	@echo "Downloading from $(PKGURL)/$(PKGTAR)"
+	@$(WGET) $(WGET_FLAGS) $(PKGURL)/$(PKGTAR)
+
+clean:
+	@$(MAKE) -C $(PLATFORM) $@
+	@rm -f .install-$(PLATFORM)
+
+distclean:
+	@rm -rf $(PLATFORM) .install-$(PLATFORM)
+
