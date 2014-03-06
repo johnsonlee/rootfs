@@ -15,7 +15,7 @@ subdirs: $(BUILD_TOOLS)
 bison: gettext m4
 
 $(BUILD_TOOLS):
-	@for i in $^; do $(MAKE) -C $$i; done
+	@for i in $@; do $(MAKE) -C $$i; done
 
 clean:
 	@for i in $(BUILD_TOOLS); do $(MAKE) -C $$i $@; done
