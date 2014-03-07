@@ -1,4 +1,4 @@
-all: packages tools
+all: packages
 
 packages: tools
 	@$(MAKE) -C $@
@@ -13,3 +13,5 @@ clean:
 distclean:
 	@$(MAKE) -C tools $@
 	@$(MAKE) -C packages $@
+
+.PHONY: packages tools
